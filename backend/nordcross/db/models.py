@@ -85,6 +85,7 @@ class Result(Base):
     raw_country: Mapped[str | None] = mapped_column(String(100), nullable=True)
     raw_club: Mapped[str | None] = mapped_column(String(200), nullable=True)
     bib: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    birth_year: Mapped[int | None] = mapped_column(nullable=True)
 
     time_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     time_display: Mapped[str | None] = mapped_column(String(20), nullable=True)

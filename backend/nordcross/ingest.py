@@ -54,6 +54,7 @@ def _upsert_result(session: Session, race: Race, parsed: ParsedResult) -> None:
     existing.raw_country = parsed.raw_country
     existing.raw_club = parsed.raw_club
     existing.bib = parsed.bib
+    existing.birth_year = parsed.birth_year
     existing.time_seconds = parsed.time_seconds
     existing.time_display = parsed.time_display
 
