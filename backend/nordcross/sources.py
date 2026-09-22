@@ -1,4 +1,4 @@
-from nordcross.scrapers import racetimer, timataka, tulospalvelu
+from nordcross.scrapers import eqtiming, racetimer, timataka, tulospalvelu
 
 SOURCES = {
     2018: {
@@ -15,6 +15,11 @@ SOURCES = {
         "name": "Nordic Cross Country Championships 2021",
         "url": "https://www.racetimer.se/en/race/show/5012?layout=marathon",
         "scraper": racetimer.scrape,
+    },
+    2022: {
+        "name": "Nordic Cross Country Championships 2022",
+        "url": "https://www.sportsidioten.no/resultater/resultater-nordisk-mesterskap-terrenglop-2022/",
+        "scraper": eqtiming.scrape,
     },
     2023: {
         "name": "Nordic Cross Country Championships 2023",

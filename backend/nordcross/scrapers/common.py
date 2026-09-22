@@ -97,7 +97,7 @@ def guess_category(label: str) -> str | None:
     """Map a free-text event label (varies per site/year/language) to one of our 4 category codes."""
     text = label.upper()
     is_u20 = bool(re.search(r"\bU20\b|JUNIOR", text))
-    is_women = bool(re.search(r"WOMEN|WOMAN|KONUR|KVINNOR|KVINDER|NAISET|KONUR", text))
+    is_women = bool(re.search(r"WOMEN|WOMAN|KONUR|KVINNOR|KVINNER|KVINDER|NAISET|KONUR", text))
     is_men = bool(re.search(r"\bMEN\b|MENN|KARLAR|HERRAR|HERRER|MIEHET", text))
 
     if is_women and not is_men:
