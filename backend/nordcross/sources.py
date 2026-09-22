@@ -1,4 +1,4 @@
-from nordcross.scrapers import eqtiming, racetimer, timataka, tulospalvelu
+from nordcross.scrapers import eqtiming, racetimer, rosterathletics, timataka, tulospalvelu
 
 SOURCES = {
     2018: {
@@ -30,5 +30,10 @@ SOURCES = {
         "name": "Nordic Cross Country Championships 2024",
         "url": "https://online.tulospalvelu.fi/tulokset-new/en/2024_nccc/",
         "scraper": tulospalvelu.scrape,
+    },
+    2025: {
+        "name": "Nordic Cross Country Championships 2025",
+        "url": "https://meets.rosterathletics.com/public/competitions/details/schedule?id=27737",
+        "scraper": rosterathletics.scrape,
     },
 }
