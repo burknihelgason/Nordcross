@@ -14,6 +14,12 @@ COUNTRY_ALIASES = {
     "DEN": "DEN", "DNK": "DEN", "DENMARK": "DEN", "DANMARK": "DEN",
     "FIN": "FIN", "FINLAND": "FIN", "SUOMI": "FIN",
     "ISL": "ISL", "ICELAND": "ISL", "ISLAND": "ISL", "ÍSLAND": "ISL",
+    # Non-Nordic entries occasionally mixed into the same results page (open/
+    # international entries at the host meet). Kept as free text on Result,
+    # not added to the `countries` table since they're outside the 5-country
+    # Nordic championship scope.
+    "EST": "EST", "ESTONIA": "EST",
+    "FRO": "FRO", "FAROE ISLANDS": "FRO",
 }
 
 # Statuses that mean "no time recorded" rather than a race result

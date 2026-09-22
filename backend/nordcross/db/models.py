@@ -3,8 +3,10 @@ from __future__ import annotations
 from sqlalchemy import (
     Float,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -64,11 +66,22 @@ class Athlete(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     full_name: Mapped[str] = mapped_column(String(200))
+    name_key: Mapped[str] = mapped_column(String(300))
     country_code: Mapped[str | None] = mapped_column(ForeignKey("countries.code"), nullable=True)
     birth_year: Mapped[int | None] = mapped_column(nullable=True)
-    world_athletics_id: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
+    world_athletics_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     country: Mapped[Country | None] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("country_code", "name_key", name="uq_athlete_country_namekey"),
+        Index(
+            "uq_athlete_world_athletics_id",
+            "world_athletics_id",
+            unique=True,
+            mssql_where=text("world_athletics_id IS NOT NULL"),
+        ),
+    )
 
 
 class Result(Base):
@@ -91,6 +104,7 @@ class Result(Base):
     time_display: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     wa_points: Mapped[int | None] = mapped_column(nullable=True)
+    athlete_match_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'high' or 'low'
 
     race: Mapped[Race] = relationship(back_populates="results")
     athlete: Mapped[Athlete | None] = relationship()
