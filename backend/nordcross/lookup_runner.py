@@ -145,7 +145,9 @@ def run_worldathletics(limit: int = 5, headless: bool = True, user_data_dir: str
                     polite_delay()
                     candidates = worldathletics.search_athlete(page, athlete.full_name)
                     candidates = [c for c in candidates if c["sex"].lower().startswith(expected_sex[0].lower())]
-                    match = _pick_best_match(candidates, athlete, id_field="profile_url", dob_field="dob")
+                    match = _pick_best_match(
+                        candidates, athlete, id_field="profile_url", dob_field="dob", country_field="federation",
+                    )
 
                 if match is None:
                     lookup.status = "not_found" if not candidates else "ambiguous"
@@ -173,24 +175,58 @@ def run_worldathletics(limit: int = 5, headless: bool = True, user_data_dir: str
         session.close()
 
 
-def _pick_best_match(candidates: list[dict], athlete: Athlete, id_field: str, dob_field: str) -> tuple[str, str] | None:
-    """Best-guess match on name + birth year, per the project's agreed
-    "best-guess automatically, flag low-confidence" policy. Returns
-    (external_id, confidence) or None if nothing is even name-plausible."""
-    target_key = name_key(athlete.full_name)
-    name_matches = [c for c in candidates if name_key(c.get("name", "")) == target_key]
-    if not name_matches:
-        return None
+def _name_tokens(name: str) -> set[str]:
+    key = name_key(name)
+    return set(key.split()) if key else set()
 
-    if athlete.birth_year:
-        year_matches = [c for c in name_matches if str(athlete.birth_year) in (c.get(dob_field) or "")]
-        if len(year_matches) == 1:
-            return year_matches[0][id_field], "high"
 
-    if len(name_matches) == 1:
-        return name_matches[0][id_field], "high" if not athlete.birth_year else "low"
+def _pick_best_match(
+    candidates: list[dict], athlete: Athlete, id_field: str, dob_field: str, country_field: str | None = None,
+) -> tuple[str, str] | None:
+    """Best-guess match, per the project's agreed "best-guess automatically,
+    flag low-confidence" policy. Returns (external_id, confidence) or None if
+    nothing is even name-plausible.
 
-    return name_matches[0][id_field], "low"
+    Two tiers:
+    1. Exact name match (same token set) -- as before, "high" once birth
+       year also agrees uniquely.
+    2. Flex match: our name's tokens are a subset of the candidate's (or
+       vice versa), so a missing/extra middle name doesn't block a match
+       (e.g. our "AARVIK Stian" vs WA's "Stian Øvergaard AARVIK") --
+       "high" only when *also* uniquely confirmed by country + birth year,
+       since name overlap alone is too weak a signal on its own.
+    """
+    target_tokens = _name_tokens(athlete.full_name)
+
+    def year_matches(cands: list[dict]) -> list[dict]:
+        if not athlete.birth_year:
+            return cands
+        return [c for c in cands if str(athlete.birth_year) in (c.get(dob_field) or "")]
+
+    def country_matches(cands: list[dict]) -> list[dict]:
+        if not country_field or not athlete.country_code:
+            return cands
+        return [c for c in cands if (c.get(country_field) or "").strip().upper() == athlete.country_code]
+
+    exact = [c for c in candidates if _name_tokens(c.get("name", "")) == target_tokens]
+    exact_by_year = year_matches(exact)
+    if len(exact_by_year) == 1:
+        return exact_by_year[0][id_field], "high"
+
+    flex = [
+        c for c in candidates
+        if c not in exact and (
+            (cand_tokens := _name_tokens(c.get("name", ""))) <= target_tokens or target_tokens <= cand_tokens
+        )
+    ]
+    flex_confirmed = year_matches(country_matches(flex))
+    if len(flex_confirmed) == 1:
+        return flex_confirmed[0][id_field], "high"
+
+    if len(exact) == 1:
+        return exact[0][id_field], "low"
+
+    return None
 
 
 def _store_tilastopaja_record(session, athlete: Athlete, category_code: str, rec: dict) -> None:
