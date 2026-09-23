@@ -8,14 +8,17 @@ here MUST go through lookup_runner's throttling with generous delays, never
 be called in a tight loop, and stop immediately (raise BlockedError) at the
 first sign of a block rather than retrying.
 
-The search UI and its results table (Name / Discipline / Sex / Federation /
-Date of birth, profile links shaped /athletes/{country-slug}/{name-slug}-
-{waId}) were confirmed live. The profile page's progression/PB section was
-NOT reached before the block hit, so `fetch_progression` below is a
-best-effort DOM search that raises clearly if it can't find something
-recognizable -- treat the first real run as the verification pass and fix
-the selectors against an actual profile page rather than trusting this
-blindly.
+Confirmed live (2026-09) against https://worldathletics.org/athletes/norway/
+kasper-fosser-014879317:
+- Search results table: rows are `<tr>` with <td> cells (the header row is
+  also a plain <tr>, just with <th> instead -- filter on `:has(td)`).
+  Columns: name (with a nested <a href="/athletes/{country}/{slug}-{id}">),
+  discipline, sex, federation (3-letter code), date of birth.
+- The profile page's "STATISTICS" tab (a client-side button, not a link) has
+  an "All-time personal top 10" table whose rows have 8 <td> cells: venue,
+  performance, wind (usually empty), discipline, date, place, score, trailing
+  empty cell. This is what we use as progression: several dated, already-
+  WA-scored marks per athlete, not just their single current best.
 """
 
 from __future__ import annotations
@@ -25,24 +28,10 @@ import re
 from playwright.sync_api import sync_playwright
 
 from nordcross.external.common import BlockedError
+from nordcross.scoring import normalize_event_label
 
 BASE_PAGE = "https://worldathletics.org/athletes"
 PROFILE_ID_RE = re.compile(r"-(\d+)$")
-
-EVENT_NAME_MAP = {
-    "800 Metres": "800m", "800m": "800m",
-    "1500 Metres": "1500m", "1500m": "1500m",
-    "3000 Metres": "3000m", "3000m": "3000m",
-    "5000 Metres": "5000m", "5000m": "5000m",
-    "10,000 Metres": "10000m", "10000 Metres": "10000m", "10000m": "10000m",
-    "10 Kilometres": "10km_road", "10km": "10km_road",
-    "15 Kilometres": "15km_road",
-    "Half Marathon": "HM", "HM": "HM",
-    "20 Kilometres": "20km_road",
-    "25 Kilometres": "25km_road",
-    "30 Kilometres": "30km_road",
-    "Marathon": "Marathon",
-}
 
 
 def open_session(user_data_dir: str, headless: bool = True):
@@ -85,20 +74,26 @@ def search_athlete(page, name: str) -> list[dict]:
     page.wait_for_timeout(2000)
     _check_not_blocked(page)
 
-    rows = page.locator("table tbody tr")
+    # The results table's header row is a plain <tr><th>...</th></tr> inside
+    # the same <tbody> (confirmed live 2026-09), so filter to rows that
+    # actually have <td> cells rather than assuming row 0 is a data row.
+    rows = page.locator("table tbody tr:has(td)")
     results = []
     for i in range(rows.count()):
         row = rows.nth(i)
-        link = row.locator("a").first
-        href = link.get_attribute("href") or ""
         cells = row.locator("td")
+        if cells.count() < 5:
+            continue
+        link = cells.nth(0).locator("a").first
+        href = link.get_attribute("href") or ""
         results.append(
             {
                 "name": link.inner_text().strip(),
                 "profile_url": href if href.startswith("http") else f"https://worldathletics.org{href}",
-                "sex": cells.nth(1).inner_text().strip() if cells.count() > 1 else "",
-                "federation": cells.nth(2).inner_text().strip() if cells.count() > 2 else "",
-                "dob": cells.nth(3).inner_text().strip() if cells.count() > 3 else "",
+                "discipline": cells.nth(1).inner_text().strip(),
+                "sex": cells.nth(2).inner_text().strip(),
+                "federation": cells.nth(3).inner_text().strip(),
+                "dob": cells.nth(4).inner_text().strip(),
             }
         )
     return results
@@ -110,34 +105,63 @@ def profile_id_from_url(profile_url: str) -> str | None:
 
 
 def fetch_progression(page, profile_url: str) -> list[dict]:
-    """Returns raw progression records: [{event, mark, date, venue}, ...].
-    UNVERIFIED against a real profile page -- see module docstring."""
+    """Returns raw progression records: [{event, mark, date, venue, place,
+    wa_score}, ...] from the "All-time personal top 10" table on the
+    profile's Statistics tab -- several dated, already WA-scored marks per
+    athlete (needed so we can later ask "what was their best *before* this
+    Nordics race", not just their current all-time best)."""
     page.goto(profile_url, wait_until="networkidle")
     _check_not_blocked(page)
 
-    progression_link = page.get_by_text(re.compile("progression", re.IGNORECASE))
-    if progression_link.count() == 0:
+    stats_button = page.get_by_text("STATISTICS", exact=True)
+    if stats_button.count() == 0:
         raise BlockedError(
-            "Could not find a 'Progression' section on the WA profile page -- "
+            "Could not find the STATISTICS tab on the WA profile page -- "
             "page layout differs from what this scraper expects; needs a live "
             "look at the actual DOM (see worldathletics.py docstring)."
         )
-    progression_link.first.click()
+    stats_button.first.click()
     page.wait_for_timeout(1500)
     _check_not_blocked(page)
 
-    rows = page.locator("table tbody tr")
-    records = []
-    for i in range(rows.count()):
-        cells = rows.nth(i).locator("td")
-        if cells.count() < 3:
+    # The top-10 table has 8 <td> cells per row; the personal-bests table
+    # (usually 1 row per discipline) has 8 too but with an empty discipline
+    # link cell structure -- picking by cell count alone isn't reliable
+    # enough, so pick the table with the most 8-cell rows.
+    best_table_rows = None
+    tables = page.locator("table")
+    for t in range(tables.count()):
+        rows = tables.nth(t).locator("tbody tr")
+        count = rows.count()
+        if count == 0:
             continue
+        if cells_len(rows.nth(0)) == 8 and (best_table_rows is None or count > best_table_rows.count()):
+            best_table_rows = rows
+
+    if best_table_rows is None:
+        raise BlockedError(
+            "Could not find the all-time top-10 results table on the WA "
+            "profile page -- needs a live look at the actual DOM."
+        )
+
+    records = []
+    for i in range(best_table_rows.count()):
+        cells = best_table_rows.nth(i).locator("td")
+        venue, mark, _wind, discipline, date, place, score, _ = (
+            cells.nth(j).inner_text().strip() for j in range(8)
+        )
         records.append(
             {
-                "event": cells.nth(0).inner_text().strip(),
-                "mark": cells.nth(1).inner_text().strip(),
-                "date": cells.nth(2).inner_text().strip(),
-                "venue": cells.nth(3).inner_text().strip() if cells.count() > 3 else None,
+                "event": discipline,
+                "mark": mark,
+                "date": date,
+                "venue": venue or None,
+                "place": place or None,
+                "wa_score": int(score) if score.isdigit() else None,
             }
         )
     return records
+
+
+def cells_len(row) -> int:
+    return row.locator("td").count()

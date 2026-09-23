@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import bisect
 import csv
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -37,6 +38,34 @@ EVENT_FILES = {
 }
 
 GENDER_TO_TABLE = {"MEN": "MALE", "WOMEN": "FEMALE", "U20_MEN": "MALE", "U20_WOMEN": "FEMALE"}
+
+_DISTANCE_KM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:km|kilometres?)\b", re.IGNORECASE)
+_DISTANCE_M_RE = re.compile(r"(\d{3,5})\s*(?:m\b|metres?\b)", re.IGNORECASE)
+
+
+def normalize_event_label(label: str) -> str | None:
+    """Maps a free-text discipline label from an external source (e.g. "10
+    Kilometres Road", "10km Road", "3000m sh", "Half Marathon") to one of our
+    canonical event codes, or None if it's not one of our tracked distance
+    events (jumps, throws, sprints, relays, ...)."""
+    text = label.strip()
+    low = text.lower()
+    if "half marathon" in low or text.strip().upper() == "HM":
+        return "HM"
+    if "marathon" in low:
+        return "Marathon"
+
+    m = _DISTANCE_KM_RE.search(text)
+    if m:
+        code = f"{round(float(m.group(1)))}km_road"
+        return code if code in EVENT_FILES else None
+
+    m = _DISTANCE_M_RE.search(text)
+    if m:
+        code = f"{int(m.group(1))}m"
+        return code if code in EVENT_FILES else None
+
+    return None
 
 
 @lru_cache(maxsize=None)

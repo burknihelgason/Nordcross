@@ -21,7 +21,7 @@ from nordcross.db.session import get_session
 from nordcross.external import tilastopaja, worldathletics
 from nordcross.external.common import BlockedError, polite_delay
 from nordcross.matching import name_key
-from nordcross.scoring import points_for
+from nordcross.scoring import normalize_event_label, points_for
 
 MALE_CATEGORIES = {"MEN", "U20_MEN"}
 
@@ -39,7 +39,8 @@ def _athlete_category_code(session, athlete_id: int) -> str | None:
 
 def _store_progression(session, athlete: Athlete, category_code: str, event_code: str,
                         performance_seconds: float, performance_display: str,
-                        date: datetime.date, venue: str | None, source: str, source_ref: str | None) -> None:
+                        date: datetime.date, venue: str | None, source: str, source_ref: str | None,
+                        points: int | None = None) -> None:
     existing = (
         session.query(AthleteProgression)
         .filter_by(athlete_id=athlete.id, event_code=event_code, date=date, performance_seconds=performance_seconds)
@@ -54,7 +55,11 @@ def _store_progression(session, athlete: Athlete, category_code: str, event_code
     existing.venue = venue
     existing.source = source
     existing.source_ref = source_ref
-    existing.points = points_for(event_code, category_code, performance_seconds)
+    # Prefer the source's own officially-computed score (e.g. World
+    # Athletics' "Score" column) over our own scoring-table interpolation,
+    # falling back to our own calculation only when the source doesn't
+    # provide one.
+    existing.points = points if points is not None else points_for(event_code, category_code, performance_seconds)
 
 
 def run_tilastopaja(limit: int = 5, headless: bool = True, user_data_dir: str = ".pw-profiles/tilastopaja") -> None:
@@ -179,7 +184,7 @@ def _pick_best_match(candidates: list[dict], athlete: Athlete, id_field: str, do
 
 
 def _store_tilastopaja_record(session, athlete: Athlete, category_code: str, rec: dict) -> None:
-    event_code = tilastopaja.EVENT_NAME_MAP.get(rec.get("event") or rec.get("discipline") or "")
+    event_code = normalize_event_label(rec.get("event") or rec.get("discipline") or "")
     if event_code is None:
         return
     performance_seconds = _parse_mark_seconds(rec.get("mark") or rec.get("result") or rec.get("performance"))
@@ -194,7 +199,7 @@ def _store_tilastopaja_record(session, athlete: Athlete, category_code: str, rec
 
 
 def _store_worldathletics_record(session, athlete: Athlete, category_code: str, rec: dict) -> None:
-    event_code = worldathletics.EVENT_NAME_MAP.get(rec.get("event") or "")
+    event_code = normalize_event_label(rec.get("event") or "")
     if event_code is None:
         return
     performance_seconds = _parse_mark_seconds(rec.get("mark"))
@@ -204,6 +209,7 @@ def _store_worldathletics_record(session, athlete: Athlete, category_code: str, 
     _store_progression(
         session, athlete, category_code, event_code, performance_seconds, rec.get("mark"),
         date, rec.get("venue"), source="worldathletics", source_ref=None,
+        points=rec.get("wa_score"),
     )
 
 
