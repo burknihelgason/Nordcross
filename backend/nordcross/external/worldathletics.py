@@ -104,14 +104,72 @@ def profile_id_from_url(profile_url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _parse_personal_bests(page) -> list[dict]:
+    """The overview page's "Personal bests" cards: one row per discipline
+    (career PB), which the "All-time top 10" table alone can miss for an
+    athlete whose global top-10-across-all-disciplines is dominated by an
+    event we don't track (e.g. a steeplechase specialist whose occasional
+    flat-race PBs never crack their own all-disciplines top 10). Rendered as
+    stacked "Label / value" pairs rather than a <table>, so parsed from text
+    rather than DOM cells -- confirmed live 2026-09 against Eero Heinonen
+    (a 3000m Steeplechase specialist)."""
+    text = page.inner_text("body")
+    start = text.find("Personal bests")
+    if start == -1:
+        return []
+    end = text.find("Season", start)
+    block = text[start + len("Personal bests"): end if end != -1 else None]
+
+    labels = {"Result", "Date", "Score", "Competition & venue"}
+    lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+
+    entries = []
+    current: dict | None = None
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("*"):  # e.g. "* Not legal"
+            i += 1
+            continue
+        if line in labels:
+            if i + 1 < len(lines):
+                current[line] = lines[i + 1]
+            i += 2
+            continue
+        if current:
+            entries.append(current)
+        current = {"discipline": line}
+        i += 1
+    if current:
+        entries.append(current)
+
+    return [
+        {
+            "event": e.get("discipline"),
+            "mark": e.get("Result"),
+            "date": e.get("Date"),
+            "venue": e.get("Competition & venue"),
+            "place": None,
+            "wa_score": int(e["Score"]) if e.get("Score", "").isdigit() else None,
+        }
+        for e in entries
+        if e.get("Result") and e.get("Date")
+    ]
+
+
 def fetch_progression(page, profile_url: str) -> list[dict]:
     """Returns raw progression records: [{event, mark, date, venue, place,
-    wa_score}, ...] from the "All-time personal top 10" table on the
-    profile's Statistics tab -- several dated, already WA-scored marks per
-    athlete (needed so we can later ask "what was their best *before* this
-    Nordics race", not just their current all-time best)."""
+    wa_score}, ...], combining the overview page's "Personal bests" cards
+    (one career-PB row per discipline) with the Statistics tab's "All-time
+    personal top 10" table (several dated, already WA-scored marks mixed
+    across all disciplines) -- together giving both full per-event PB
+    coverage and cross-event historical spread. Needed so we can later ask
+    "what was their best *before* this Nordics race", not just their current
+    all-time best."""
     page.goto(profile_url, wait_until="networkidle")
     _check_not_blocked(page)
+
+    records = _parse_personal_bests(page)
 
     stats_button = page.get_by_text("STATISTICS", exact=True)
     if stats_button.count() == 0:
@@ -142,15 +200,15 @@ def fetch_progression(page, profile_url: str) -> list[dict]:
         # A genuinely empty profile (e.g. their only mark was wind-aided /
         # "not legal") renders "All-time personal top 10 ... No data" with no
         # <table> at all -- confirmed live 2026-09 -- which is a real, valid
-        # "no progression data" outcome, not a block.
+        # "no progression data" outcome, not a block. Still return whatever
+        # the Personal Bests cards gave us.
         if "no data" in page.inner_text("body").lower():
-            return []
+            return records
         raise BlockedError(
             "Could not find the all-time top-10 results table on the WA "
             "profile page -- needs a live look at the actual DOM."
         )
 
-    records = []
     for i in range(best_table_rows.count()):
         cells = best_table_rows.nth(i).locator("td")
         venue, mark, _wind, discipline, date, place, score, _ = (
