@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form class="filter-banner" method="get" action="{{ url_for('views.index') }}">
+  <fieldset>
+    <legend>Categories</legend>
+    {% for cat in available.categories %}
+    <label class="chip">
+      <input type="checkbox" name="cat" value="{{ cat.code }}"
+        {% if cat.code in selected.category_codes %}checked{% endif %}>
+      {{ cat.name }}
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Countries</legend>
+    {% for country in available.countries %}
+    <label class="chip">
+      <input type="checkbox" name="country" value="{{ country.code }}"
+        {% if country.code in selected.country_codes %}checked{% endif %}>
+      {{ country.name }}
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Years</legend>
+    {% for year in available.years %}
+    <label class="chip">
+      <input type="checkbox" name="year" value="{{ year }}"
+        {% if year in selected.years %}checked{% endif %}>
+      {{ year }}
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Placings</legend>
+    <label class="chip">
+      <input type="radio" name="placings" value="first_to_last"
+        {% if selected.placings_mode == 'first_to_last' %}checked{% endif %}>
+      First to last
+    </label>
+    <label class="chip">
+      <input type="radio" name="placings" value="last_to_first"
+        {% if selected.placings_mode == 'last_to_first' %}checked{% endif %}>
+      Last to first
+    </label>
+  </fieldset>
+
+  <input type="hidden" name="tab" id="active-tab-input" value="{{ active_tab }}">
+  <button type="submit">Apply filters</button>
+</form>
+
+<nav class="tab-nav">
+  <button class="tab-button {% if active_tab == 'raw-data' %}active{% endif %}" data-tab="raw-data">Raw data</button>
+  <button class="tab-button {% if active_tab == 'graphs' %}active{% endif %}" data-tab="graphs">Graphs</button>
+  <button class="tab-button {% if active_tab == 'analytics' %}active{% endif %}" data-tab="analytics">Analytics</button>
+</nav>
+
+<section id="tab-raw-data" class="tab-panel {% if active_tab == 'raw-data' %}active{% endif %}">
+  {% if not race_grids %}
+  <p class="placeholder">No results match the current filters.</p>
+  {% endif %}
+  {% for grid in race_grids %}
+  <div class="race-grid">
+    <h2>{{ grid.year }} &mdash; {{ grid.category_name }}{% if grid.race_name %} ({{ grid.race_name }}){% endif %}</h2>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Place</th>
+          <th>Name</th>
+          <th>Country</th>
+          <th>Birth year</th>
+          <th>Club</th>
+          <th>Time</th>
+          <th>WA points</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in grid.results %}
+        <tr class="{% if r.status != 'OK' %}non-finisher{% endif %}">
+          <td>{{ r.place if r.place is not none else r.status }}</td>
+          <td>{{ r.athlete.full_name if r.athlete else r.raw_name }}</td>
+          <td>{{ r.raw_country or '' }}</td>
+          <td>{{ r.birth_year or '' }}</td>
+          <td>{{ r.raw_club or '' }}</td>
+          <td>{{ r.time_display or '' }}</td>
+          <td>{{ r.wa_points if r.wa_points is not none else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</section>
+
+<section id="tab-graphs" class="tab-panel {% if active_tab == 'graphs' %}active{% endif %}">
+  <div class="graph-panels">
+    <div class="graph-panel">
+      <h3>Average points by placing</h3>
+      <div id="chart-left" class="chart"></div>
+    </div>
+    <div class="graph-panel">
+      <h3>Cumulative distribution of points</h3>
+      <div id="chart-right" class="chart"></div>
+    </div>
+  </div>
+</section>
+
+<script id="graph-data" type="application/json">{{ graph_data | tojson }}</script>
+<script id="placings-mode" type="application/json">{{ selected.placings_mode | tojson }}</script>
+
+<section id="tab-analytics" class="tab-panel {% if active_tab == 'analytics' %}active{% endif %}">
+  <div class="analytics-block">
+    <h3>Points needed per category</h3>
+    <table class="results-table">
+      <thead>
+        <tr><th>Category</th><th>A-class points</th><th>B-class points</th></tr>
+      </thead>
+      <tbody>
+        {% for cp in class_points %}
+        <tr>
+          <td>{{ cp.category_name }}</td>
+          <td>{{ cp.a_class_points if cp.a_class_points is not none else '—' }}</td>
+          <td>{{ cp.b_class_points if cp.b_class_points is not none else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for label, table in [('A-class', a_class_table), ('B-class', b_class_table)] %}
+  <div class="analytics-block">
+    <h3>{{ label }} equivalent times by event</h3>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Event</th>
+          {% for cp in class_points %}<th>{{ cp.category_name }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in table %}
+        <tr>
+          <td>{{ row.event_code }}</td>
+          {% for cp in class_points %}
+          <td>{{ row.times_by_category.get(cp.category_code) or '—' }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</section>
+
+<p class="filter-summary">
+  Showing: {{ selected.category_codes | join(', ') }}
+  &middot; {{ selected.country_codes | join(', ') }}
+  &middot; {{ selected.years | join(', ') }}
+</p>
+{% endblock %}

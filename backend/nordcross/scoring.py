@@ -115,3 +115,47 @@ def points_for(event_code: str, gender_category: str, time_seconds: float) -> in
         return lo_pts
     fraction = (time_seconds - lo_perf) / (hi_perf - lo_perf)
     return round(lo_pts + fraction * (hi_pts - lo_pts))
+
+
+def time_for_points(event_code: str, gender_category: str, points: float) -> float | None:
+    """Inverse of points_for(): the performance (in seconds) that scores the
+    given points. The table's `performances` list is ascending (fastest
+    first), which pairs with `points` descending (fastest = most points) --
+    reversing both together keeps each pair aligned while making `points`
+    ascending, which bisect requires."""
+    if event_code not in EVENT_FILES:
+        return None
+    table_gender = GENDER_TO_TABLE.get(gender_category)
+    if table_gender is None:
+        return None
+
+    performances, pts = _load_table(event_code, table_gender)
+    perf_asc = performances[::-1]
+    pts_asc = pts[::-1]
+
+    if points <= pts_asc[0]:
+        return perf_asc[0]
+    if points >= pts_asc[-1]:
+        return perf_asc[-1]
+
+    idx = bisect.bisect_left(pts_asc, points)
+    lo_pts, hi_pts = pts_asc[idx - 1], pts_asc[idx]
+    lo_perf, hi_perf = perf_asc[idx - 1], perf_asc[idx]
+    if hi_pts == lo_pts:
+        return lo_perf
+    fraction = (points - lo_pts) / (hi_pts - lo_pts)
+    return lo_perf + fraction * (hi_perf - lo_perf)
+
+
+def format_seconds(seconds: float) -> str:
+    """Renders a performance time the way this project already displays
+    them elsewhere: MM:SS.ss under an hour, H:MM:SS from an hour up
+    (matching the formats scrapers.common.parse_time_to_seconds accepts)."""
+    if seconds >= 3600:
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(round(seconds % 60))
+        return f"{h}:{m:02d}:{s:02d}"
+    m = int(seconds // 60)
+    s = seconds % 60
+    return f"{m}:{s:05.2f}"
