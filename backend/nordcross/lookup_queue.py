@@ -5,32 +5,34 @@ import datetime
 from nordcross.db.models import Athlete, AthleteLookup
 from nordcross.db.session import get_session
 
-# Which external source covers which country. Iceland is small enough that
-# essentially every athlete of any note has a Tilastopaja/afrekaskra record;
-# for the other four countries World Athletics is the only realistic source.
-SOURCE_BY_COUNTRY = {
-    "ISL": "tilastopaja",
-    "NOR": "worldathletics",
-    "SWE": "worldathletics",
-    "DEN": "worldathletics",
-    "FIN": "worldathletics",
+# Which external source(s) cover which country. World Athletics is tried for
+# everyone (Icelandic athletes competing internationally often have a WA
+# profile too); Iceland additionally gets Tilastopaja/afrekaskra, which has
+# essentially every Icelandic athlete of any note, not just internationally
+# active ones -- useful as a second pass once/if that source stops blocking us.
+SOURCES_BY_COUNTRY = {
+    "ISL": ["worldathletics", "tilastopaja"],
+    "NOR": ["worldathletics"],
+    "SWE": ["worldathletics"],
+    "DEN": ["worldathletics"],
+    "FIN": ["worldathletics"],
 }
 
 
 def seed_lookup_queue() -> int:
     """Create a 'pending' AthleteLookup row for every athlete/source pair that
     doesn't have one yet. Idempotent — safe to re-run after new athletes are
-    matched. Returns the number of rows created."""
+    matched or the source list changes. Returns the number of rows created."""
     session = get_session()
     try:
         existing = {(l.athlete_id, l.source) for l in session.query(AthleteLookup).all()}
         created = 0
         for athlete in session.query(Athlete).all():
-            source = SOURCE_BY_COUNTRY.get(athlete.country_code)
-            if source is None or (athlete.id, source) in existing:
-                continue
-            session.add(AthleteLookup(athlete_id=athlete.id, source=source, status="pending"))
-            created += 1
+            for source in SOURCES_BY_COUNTRY.get(athlete.country_code, []):
+                if (athlete.id, source) in existing:
+                    continue
+                session.add(AthleteLookup(athlete_id=athlete.id, source=source, status="pending"))
+                created += 1
         session.commit()
         return created
     finally:
