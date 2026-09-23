@@ -34,7 +34,12 @@ from nordcross.external.common import BlockedError
 from nordcross.scoring import normalize_event_label
 
 BASE_PAGE = "https://worldathletics.org/athletes"
-PROFILE_ID_RE = re.compile(r"-(\d+)$")
+# Trailing digits only (not "-(\d+)$") -- must also match the "/-/<id>" shape
+# lookup_runner builds for a manual/refresh re-fetch, which has no hyphen
+# right before the id. Requiring one there silently returned None and wiped
+# out world_athletics_id/external_id for every athlete refreshed that way --
+# found via a real audit, not a hypothetical.
+PROFILE_ID_RE = re.compile(r"(\d+)$")
 
 
 def open_session(user_data_dir: str, headless: bool = True):

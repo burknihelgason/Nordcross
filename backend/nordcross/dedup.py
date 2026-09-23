@@ -79,6 +79,16 @@ def _token_similarity(a: str, b: str) -> float:
     return sum(scores) / len(scores)
 
 
+_STATUS_RANK = {"done": 2, "ambiguous": 1, "pending": 1, "failed": 0, "not_found": 0}
+
+
+def _lookup_quality(lu: AthleteLookup) -> tuple[int, int]:
+    """Ranks a lookup row so merge_athletes can keep the better of two rows
+    for the same source instead of always favoring keep_id's. A resolved
+    external_id always beats one without, regardless of status text."""
+    return (1 if lu.external_id else 0, _STATUS_RANK.get(lu.status, 0))
+
+
 def _race_ids(session, athlete_id: int) -> set[int]:
     return {r.race_id for r in session.query(Result.race_id).filter_by(athlete_id=athlete_id).all()}
 
@@ -153,14 +163,25 @@ def merge_athletes(keep_id: int, remove_id: int) -> None:
             else:
                 p.athlete_id = keep_id
 
-        keep_sources = {
-            lu.source for lu in session.query(AthleteLookup).filter_by(athlete_id=keep_id).all()
-        }
-        for lu in session.query(AthleteLookup).filter_by(athlete_id=remove_id).all():
-            if lu.source in keep_sources:
-                session.delete(lu)  # keep_id's own row for this source wins
-            else:
-                lu.athlete_id = keep_id
+        # When both sides have a lookup row for the same source, keep
+        # whichever is actually more complete rather than always favoring
+        # keep_id's -- found via a real case (Nahom Tesfalem Tewelde): keep_id
+        # had only ever tried (and failed) a search under its own truncated
+        # name, so its "ambiguous" row would have won over remove_id's
+        # genuinely resolved one and silently discarded a real match.
+        for source in {lu.source for lu in session.query(AthleteLookup).filter(
+            AthleteLookup.athlete_id.in_([keep_id, remove_id])
+        ).all()}:
+            k_lu = session.query(AthleteLookup).filter_by(athlete_id=keep_id, source=source).one_or_none()
+            r_lu = session.query(AthleteLookup).filter_by(athlete_id=remove_id, source=source).one_or_none()
+            if k_lu and r_lu:
+                if _lookup_quality(r_lu) > _lookup_quality(k_lu):
+                    session.delete(k_lu)
+                    r_lu.athlete_id = keep_id
+                else:
+                    session.delete(r_lu)
+            elif r_lu:
+                r_lu.athlete_id = keep_id
 
         if keep.birth_year is None and remove.birth_year is not None:
             keep.birth_year = remove.birth_year

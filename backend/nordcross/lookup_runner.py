@@ -158,9 +158,8 @@ def run_worldathletics(limit: int = 5, headless: bool = True, user_data_dir: str
                     records = worldathletics.fetch_progression(page, profile_url)
                     for rec in records:
                         _store_worldathletics_record(session, athlete, category_code, rec)
-                    athlete.world_athletics_id = worldathletics.profile_id_from_url(profile_url)
                     lookup.status = "done"
-                    lookup.external_id = athlete.world_athletics_id
+                    lookup.external_id = worldathletics.profile_id_from_url(profile_url)
                     lookup.match_confidence = confidence
                     lookup.note = f"{len(records)} progression record(s)" + (" (manual)" if candidates is None else "")
 
