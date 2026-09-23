@@ -139,6 +139,12 @@ def fetch_progression(page, profile_url: str) -> list[dict]:
             best_table_rows = rows
 
     if best_table_rows is None:
+        # A genuinely empty profile (e.g. their only mark was wind-aided /
+        # "not legal") renders "All-time personal top 10 ... No data" with no
+        # <table> at all -- confirmed live 2026-09 -- which is a real, valid
+        # "no progression data" outcome, not a block.
+        if "no data" in page.inner_text("body").lower():
+            return []
         raise BlockedError(
             "Could not find the all-time top-10 results table on the WA "
             "profile page -- needs a live look at the actual DOM."
