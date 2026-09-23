@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import datetime
+
 from sqlalchemy import (
+    Date,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -112,3 +116,59 @@ class Result(Base):
     __table_args__ = (
         UniqueConstraint("race_id", "raw_name", "place", name="uq_result_race_name_place"),
     )
+
+
+class AthleteProgression(Base):
+    """One track/road personal-performance entry pulled from an external
+    statistics source (World Athletics or Tilastopaja), used to establish the
+    athlete's form at a given point in time."""
+
+    __tablename__ = "athlete_progression"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
+
+    event_code: Mapped[str] = mapped_column(String(20))  # see nordcross.scoring.EVENT_FILES
+    performance_seconds: Mapped[float] = mapped_column(Float)
+    performance_display: Mapped[str] = mapped_column(String(20))
+    date: Mapped[datetime.date] = mapped_column(Date)
+    venue: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    points: Mapped[int | None] = mapped_column(nullable=True)
+
+    source: Mapped[str] = mapped_column(String(20))  # 'worldathletics' | 'tilastopaja'
+    source_ref: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    athlete: Mapped[Athlete] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint(
+            "athlete_id", "event_code", "date", "performance_seconds",
+            name="uq_progression_entry",
+        ),
+    )
+
+
+class AthleteLookup(Base):
+    """Tracks, per athlete and per external source, whether we've looked up
+    their progression yet. This is the resumable queue the slow-drip runner
+    works through, so a lookup is never repeated once it succeeds or
+    permanently fails."""
+
+    __tablename__ = "athlete_lookups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
+    source: Mapped[str] = mapped_column(String(20))  # 'worldathletics' | 'tilastopaja'
+
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    # pending | done | not_found | ambiguous | failed
+    external_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    match_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'high' | 'low'
+
+    attempts: Mapped[int] = mapped_column(default=0)
+    last_attempt_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    athlete: Mapped[Athlete] = relationship()
+
+    __table_args__ = (UniqueConstraint("athlete_id", "source", name="uq_lookup_athlete_source"),)
