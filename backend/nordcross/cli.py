@@ -7,7 +7,9 @@ from nordcross.db.session import get_engine
 from nordcross.dedup import find_potential_duplicates, merge_athletes
 from nordcross.ingest import store_championship_results
 from nordcross.lookup_queue import export_for_review, queue_summary, resolve_manually, seed_lookup_queue
-from nordcross.lookup_runner import run_tilastopaja, run_worldathletics
+from nordcross.lookup_runner import run_friidrottsstatistik, run_tilastopaja, run_worldathletics
+
+SOURCE_CHOICES = ["tilastopaja", "worldathletics", "friidrottsstatistik"]
 from nordcross.matching import match_athletes
 from nordcross.progression_matching import add_manual_progression, match_wa_points
 from nordcross.sources import SOURCES
@@ -41,19 +43,19 @@ def main() -> None:
     sub.add_parser("seed-lookup-queue", help="Queue athletes for external progression lookup")
     sub.add_parser("lookup-status", help="Show external lookup queue counts by source/status")
     lookup_run_parser = sub.add_parser("lookup-run", help="Process a small batch of the lookup queue")
-    lookup_run_parser.add_argument("source", choices=["tilastopaja", "worldathletics"])
+    lookup_run_parser.add_argument("source", choices=SOURCE_CHOICES)
     lookup_run_parser.add_argument("--limit", type=int, default=5)
-    lookup_run_parser.add_argument("--headed", action="store_true", help="Show the browser window")
+    lookup_run_parser.add_argument("--headed", action="store_true", help="Show the browser window (ignored for friidrottsstatistik, which has no browser)")
 
     export_parser = sub.add_parser("lookup-export", help="Export ambiguous/not-found lookups to CSV for manual review")
-    export_parser.add_argument("source", choices=["tilastopaja", "worldathletics"])
+    export_parser.add_argument("source", choices=SOURCE_CHOICES)
     export_parser.add_argument("--out", default="lookup_review.csv")
     export_parser.add_argument("--status", default="ambiguous,not_found", help="Comma-separated statuses to include")
 
     resolve_parser = sub.add_parser("lookup-resolve", help="Feed back a manually-found profile for one athlete")
     resolve_parser.add_argument("athlete_id", type=int)
-    resolve_parser.add_argument("source", choices=["tilastopaja", "worldathletics"])
-    resolve_parser.add_argument("url_or_id", help="Full profile URL (worldathletics) or numeric athleteId (tilastopaja)")
+    resolve_parser.add_argument("source", choices=SOURCE_CHOICES)
+    resolve_parser.add_argument("url_or_id", help="Full profile URL (worldathletics), numeric athleteId (tilastopaja), or numeric ID (friidrottsstatistik)")
 
     add_prog_parser = sub.add_parser("add-progression", help="Manually record a PR a human found by hand")
     add_prog_parser.add_argument("athlete_id", type=int)
@@ -86,8 +88,11 @@ def main() -> None:
         for (source, status), count in sorted(queue_summary().items()):
             print(f"  {source:15s} {status:10s} {count}")
     elif args.command == "lookup-run":
-        runner = run_tilastopaja if args.source == "tilastopaja" else run_worldathletics
-        runner(limit=args.limit, headless=not args.headed)
+        if args.source == "friidrottsstatistik":
+            run_friidrottsstatistik(limit=args.limit)
+        else:
+            runner = run_tilastopaja if args.source == "tilastopaja" else run_worldathletics
+            runner(limit=args.limit, headless=not args.headed)
     elif args.command == "lookup-export":
         statuses = tuple(s.strip() for s in args.status.split(","))
         count = export_for_review(args.source, args.out, statuses)

@@ -18,7 +18,7 @@ import datetime
 
 from nordcross.db.models import Athlete, AthleteLookup, AthleteProgression, Category, Race, Result
 from nordcross.db.session import get_session
-from nordcross.external import tilastopaja, worldathletics
+from nordcross.external import friidrottsstatistik, tilastopaja, worldathletics
 from nordcross.external.common import BlockedError, polite_delay
 from nordcross.matching import name_key
 from nordcross.scoring import normalize_event_label, points_for
@@ -175,6 +175,55 @@ def run_worldathletics(limit: int = 5, headless: bool = True, user_data_dir: str
         session.close()
 
 
+def run_friidrottsstatistik(limit: int = 10) -> None:
+    """friidrottsstatistik.se (Swedish athletes) has no automated search --
+    its athlete-name search requires a logged-in account, so every lookup
+    here must already have manual_url set (the numeric ID) via
+    `lookup-resolve`, found by a human (the site's own search once logged
+    in, or a general web search when the athlete is notable enough to be
+    indexed elsewhere). Plain requests, no browser/session needed -- no
+    bot-protection observed, but still polite-delayed between athletes."""
+    session = get_session()
+    try:
+        pending = (
+            session.query(AthleteLookup)
+            .filter_by(source="friidrottsstatistik", status="pending")
+            .filter(AthleteLookup.manual_url.isnot(None))
+            .order_by(AthleteLookup.id)
+            .limit(limit)
+            .all()
+        )
+        if not pending:
+            print("No pending friidrottsstatistik lookups with a resolved ID (use lookup-resolve first).")
+            return
+
+        for lookup in pending:
+            athlete = session.get(Athlete, lookup.athlete_id)
+            category_code = _athlete_category_code(session, athlete.id) or "MEN"
+            sex = 1 if category_code in MALE_CATEGORIES else 2
+            print(f"Fetching (friidrottsstatistik): {athlete.full_name} (id={lookup.manual_url})")
+
+            try:
+                records = friidrottsstatistik.fetch_progression(lookup.manual_url, sex)
+            except Exception as e:
+                lookup.status = "failed"
+                lookup.note = str(e)[:500]
+            else:
+                for rec in records:
+                    _store_friidrottsstatistik_record(session, athlete, category_code, rec)
+                lookup.status = "done"
+                lookup.external_id = lookup.manual_url
+                lookup.match_confidence = "high"  # human-confirmed identity
+                lookup.note = f"{len(records)} progression record(s) (manual)"
+
+            lookup.attempts += 1
+            lookup.last_attempt_at = datetime.datetime.now(datetime.timezone.utc)
+            session.commit()
+            polite_delay()
+    finally:
+        session.close()
+
+
 def _name_tokens(name: str) -> set[str]:
     key = name_key(name)
     return set(key.split()) if key else set()
@@ -273,4 +322,24 @@ def _parse_date(raw: str | None) -> datetime.date | None:
             return datetime.datetime.strptime(raw.strip(), fmt).date()
         except ValueError:
             continue
+    # Bare year (e.g. friidrottsstatistik.se falling back when a row has no
+    # day.month) -- Jan 1 is a safe lower bound: guaranteed not to be later
+    # than the mark actually was, which matters for the "before this race
+    # date" causality check even though it may understate how recent it was.
+    if raw.strip().isdigit() and len(raw.strip()) == 4:
+        return datetime.date(int(raw.strip()), 1, 1)
     return None
+
+
+def _store_friidrottsstatistik_record(session, athlete: Athlete, category_code: str, rec: dict) -> None:
+    event_code = normalize_event_label(rec.get("event") or "")
+    if event_code is None:
+        return
+    performance_seconds = _parse_mark_seconds(rec.get("mark"))
+    date = _parse_date(rec.get("date"))
+    if performance_seconds is None or date is None:
+        return
+    _store_progression(
+        session, athlete, category_code, event_code, performance_seconds, rec.get("mark"),
+        date, rec.get("venue"), source="friidrottsstatistik", source_ref=None,
+    )

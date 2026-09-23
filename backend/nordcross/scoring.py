@@ -54,7 +54,7 @@ def normalize_event_label(label: str) -> str | None:
     Kilometres Road", "10km Road", "3000m sh", "Half Marathon") to one of our
     canonical event codes, or None if it's not one of our tracked distance
     events (jumps, throws, sprints, relays, steeplechase, race walks, ...)."""
-    text = label.strip()
+    text = label.strip().replace(",", "")  # "10,000m" -> "10000m"
     low = text.lower()
     if any(kw in low for kw in _NON_FLAT_KEYWORDS):
         return None
