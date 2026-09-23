@@ -219,7 +219,6 @@ def _store_worldathletics_record(session, athlete: Athlete, category_code: str, 
     _store_progression(
         session, athlete, category_code, event_code, performance_seconds, rec.get("mark"),
         date, rec.get("venue"), source="worldathletics", source_ref=None,
-        points=rec.get("wa_score"),
     )
 
 

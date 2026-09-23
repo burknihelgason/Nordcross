@@ -42,14 +42,22 @@ GENDER_TO_TABLE = {"MEN": "MALE", "WOMEN": "FEMALE", "U20_MEN": "MALE", "U20_WOM
 _DISTANCE_KM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:km|kilometres?)\b", re.IGNORECASE)
 _DISTANCE_M_RE = re.compile(r"(\d{3,5})\s*(?:m\b|metres?\b)", re.IGNORECASE)
 
+# A label like "3000 Metres Steeplechase" or "4x400 Metres Relay" contains a
+# plain distance substring our regexes would otherwise match -- but neither
+# is a flat run/walk over that distance, so they must be excluded explicitly
+# rather than relying on the distance not coincidentally appearing.
+_NON_FLAT_KEYWORDS = ("steeplechase", "hurdles", "walk", "relay", "medley")
+
 
 def normalize_event_label(label: str) -> str | None:
     """Maps a free-text discipline label from an external source (e.g. "10
     Kilometres Road", "10km Road", "3000m sh", "Half Marathon") to one of our
     canonical event codes, or None if it's not one of our tracked distance
-    events (jumps, throws, sprints, relays, ...)."""
+    events (jumps, throws, sprints, relays, steeplechase, race walks, ...)."""
     text = label.strip()
     low = text.lower()
+    if any(kw in low for kw in _NON_FLAT_KEYWORDS):
+        return None
     if "half marathon" in low or text.strip().upper() == "HM":
         return "HM"
     if "marathon" in low:
