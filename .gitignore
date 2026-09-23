@@ -12,3 +12,4 @@ build/
 .vscode/
 .idea/
 .pw-profiles/
+lookup_review_*.csv
