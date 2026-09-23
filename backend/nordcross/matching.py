@@ -10,9 +10,12 @@ from nordcross.db.session import get_session
 def name_key(raw_name: str) -> str:
     """Order-independent, accent-insensitive key used to match the same athlete
     across sources that format names differently (e.g. "SURNAME Given" vs
-    "Given Surname")."""
+    "Given Surname", or a compound surname hyphenated in one source and
+    space-separated in another -- confirmed live as a real case, "Hansen-
+    Møllerud" vs "Hansen Møllerud")."""
     folded = unicodedata.normalize("NFKD", raw_name)
     folded = "".join(c for c in folded if not unicodedata.combining(c))
+    folded = folded.replace("-", " ")
     tokens = sorted(t.casefold() for t in folded.split() if t)
     return " ".join(tokens)
 

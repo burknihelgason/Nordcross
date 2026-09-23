@@ -4,6 +4,7 @@ import datetime
 from nordcross.db.models import Base
 from nordcross.db.seed import seed_reference_data
 from nordcross.db.session import get_engine
+from nordcross.dedup import find_potential_duplicates, merge_athletes
 from nordcross.ingest import store_championship_results
 from nordcross.lookup_queue import export_for_review, queue_summary, resolve_manually, seed_lookup_queue
 from nordcross.lookup_runner import run_tilastopaja, run_worldathletics
@@ -63,6 +64,13 @@ def main() -> None:
 
     sub.add_parser("match-progression", help="Step 3: set each result's wa_points from progression before its race date")
 
+    find_dup_parser = sub.add_parser("find-duplicates", help="List athlete pairs that look like the same person")
+    find_dup_parser.add_argument("--auto-merge-high", action="store_true", help="Merge 'high' confidence pairs automatically")
+
+    merge_parser = sub.add_parser("merge-athletes", help="Merge one athlete's results/progression into another, then delete it")
+    merge_parser.add_argument("keep_id", type=int)
+    merge_parser.add_argument("remove_id", type=int)
+
     args = parser.parse_args()
     if args.command == "init-db":
         init_db()
@@ -96,6 +104,20 @@ def main() -> None:
         print(f"Matched {stats['matched']} result(s) to a progression PR.")
         print(f"  {stats['no_progression_before_race']} result(s) had no qualifying progression before the race date.")
         print(f"  {stats['no_race_date']} result(s)' championship has no recorded date.")
+    elif args.command == "find-duplicates":
+        candidates = find_potential_duplicates()
+        merged = 0
+        for c in candidates:
+            if args.auto_merge_high and c.confidence == "high":
+                print(f"MERGING {c.athlete_a.id} + {c.athlete_b.id}: {c.athlete_a.full_name!r} / {c.athlete_b.full_name!r} (sim={c.similarity:.2f})")
+                merge_athletes(c.athlete_a.id, c.athlete_b.id)
+                merged += 1
+            else:
+                print(f"[{c.confidence}] {c.athlete_a.id} {c.athlete_a.full_name!r} <-> {c.athlete_b.id} {c.athlete_b.full_name!r} (sim={c.similarity:.2f})")
+        print(f"\n{len(candidates)} candidate pair(s) found" + (f", {merged} auto-merged" if args.auto_merge_high else "."))
+    elif args.command == "merge-athletes":
+        merge_athletes(args.keep_id, args.remove_id)
+        print(f"Merged athlete {args.remove_id} into {args.keep_id}.")
 
 
 if __name__ == "__main__":
