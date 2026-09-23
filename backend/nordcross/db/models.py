@@ -136,7 +136,7 @@ class AthleteProgression(Base):
     venue: Mapped[str | None] = mapped_column(String(200), nullable=True)
     points: Mapped[int | None] = mapped_column(nullable=True)
 
-    source: Mapped[str] = mapped_column(String(20))  # 'worldathletics' | 'tilastopaja'
+    source: Mapped[str] = mapped_column(String(30))  # see lookup_queue.SOURCES_BY_COUNTRY
     source_ref: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     athlete: Mapped[Athlete] = relationship()
@@ -159,7 +159,7 @@ class AthleteLookup(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     athlete_id: Mapped[int] = mapped_column(ForeignKey("athletes.id"))
-    source: Mapped[str] = mapped_column(String(20))  # 'worldathletics' | 'tilastopaja'
+    source: Mapped[str] = mapped_column(String(30))  # see lookup_queue.SOURCES_BY_COUNTRY
 
     status: Mapped[str] = mapped_column(String(20), default="pending")
     # pending | done | not_found | ambiguous | failed

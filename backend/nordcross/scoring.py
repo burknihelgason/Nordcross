@@ -40,7 +40,10 @@ EVENT_FILES = {
 GENDER_TO_TABLE = {"MEN": "MALE", "WOMEN": "FEMALE", "U20_MEN": "MALE", "U20_WOMEN": "FEMALE"}
 
 _DISTANCE_KM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:km|kilometres?)\b", re.IGNORECASE)
-_DISTANCE_M_RE = re.compile(r"(\d{3,5})\s*(?:m\b|metres?\b)", re.IGNORECASE)
+# "metres?" covers English; "meter" (no trailing s) covers the Swedish/
+# Norwegian spelling ("800 meter"), which also happens to be valid English
+# (US spelling) so one alternation covers both.
+_DISTANCE_M_RE = re.compile(r"(\d{3,5})\s*(?:m\b|metres?\b|meter\b)", re.IGNORECASE)
 
 # A label like "3000 Metres Steeplechase" or "4x400 Metres Relay" contains a
 # plain distance substring our regexes would otherwise match -- but neither
@@ -58,9 +61,9 @@ def normalize_event_label(label: str) -> str | None:
     low = text.lower()
     if any(kw in low for kw in _NON_FLAT_KEYWORDS):
         return None
-    if "half marathon" in low or text.strip().upper() == "HM":
+    if "half marathon" in low or "halvmaraton" in low or text.strip().upper() == "HM":
         return "HM"
-    if "marathon" in low:
+    if "marathon" in low or "maraton" in low:
         return "Marathon"
 
     m = _DISTANCE_KM_RE.search(text)

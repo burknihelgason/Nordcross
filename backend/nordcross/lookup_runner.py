@@ -18,7 +18,7 @@ import datetime
 
 from nordcross.db.models import Athlete, AthleteLookup, AthleteProgression, Category, Race, Result
 from nordcross.db.session import get_session
-from nordcross.external import friidrottsstatistik, tilastopaja, worldathletics
+from nordcross.external import friidrottsstatistik, minfriidrettsstatistikk, tilastopaja, worldathletics
 from nordcross.external.common import BlockedError, polite_delay
 from nordcross.matching import name_key
 from nordcross.scoring import normalize_event_label, points_for
@@ -224,6 +224,52 @@ def run_friidrottsstatistik(limit: int = 10) -> None:
         session.close()
 
 
+def run_minfriidrettsstatistikk(limit: int = 10) -> None:
+    """minfriidrettsstatistikk.info (Norwegian athletes) has no bot-
+    protection and no login gate at all, but also no global athlete-name
+    search -- only browse-by-club or browse-by-ranking, each linking to a
+    numeric ID. Same manual-resolution-only pattern as friidrottsstatistik:
+    every lookup here must already have manual_url set via lookup-resolve."""
+    session = get_session()
+    try:
+        pending = (
+            session.query(AthleteLookup)
+            .filter_by(source="minfriidrettsstatistikk", status="pending")
+            .filter(AthleteLookup.manual_url.isnot(None))
+            .order_by(AthleteLookup.id)
+            .limit(limit)
+            .all()
+        )
+        if not pending:
+            print("No pending minfriidrettsstatistikk lookups with a resolved ID (use lookup-resolve first).")
+            return
+
+        for lookup in pending:
+            athlete = session.get(Athlete, lookup.athlete_id)
+            category_code = _athlete_category_code(session, athlete.id) or "MEN"
+            print(f"Fetching (minfriidrettsstatistikk): {athlete.full_name} (id={lookup.manual_url})")
+
+            try:
+                records = minfriidrettsstatistikk.fetch_progression(lookup.manual_url)
+            except Exception as e:
+                lookup.status = "failed"
+                lookup.note = str(e)[:500]
+            else:
+                for rec in records:
+                    _store_minfriidrettsstatistikk_record(session, athlete, category_code, rec)
+                lookup.status = "done"
+                lookup.external_id = lookup.manual_url
+                lookup.match_confidence = "high"  # human-confirmed identity
+                lookup.note = f"{len(records)} progression record(s) (manual)"
+
+            lookup.attempts += 1
+            lookup.last_attempt_at = datetime.datetime.now(datetime.timezone.utc)
+            session.commit()
+            polite_delay()
+    finally:
+        session.close()
+
+
 def _name_tokens(name: str) -> set[str]:
     key = name_key(name)
     return set(key.split()) if key else set()
@@ -317,7 +363,7 @@ def _parse_mark_seconds(mark: str | None) -> float | None:
 def _parse_date(raw: str | None) -> datetime.date | None:
     if not raw:
         return None
-    for fmt in ("%d %b %Y", "%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
+    for fmt in ("%d %b %Y", "%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%d.%m.%y"):
         try:
             return datetime.datetime.strptime(raw.strip(), fmt).date()
         except ValueError:
@@ -342,4 +388,18 @@ def _store_friidrottsstatistik_record(session, athlete: Athlete, category_code: 
     _store_progression(
         session, athlete, category_code, event_code, performance_seconds, rec.get("mark"),
         date, rec.get("venue"), source="friidrottsstatistik", source_ref=None,
+    )
+
+
+def _store_minfriidrettsstatistikk_record(session, athlete: Athlete, category_code: str, rec: dict) -> None:
+    event_code = normalize_event_label(rec.get("event") or "")
+    if event_code is None:
+        return
+    performance_seconds = minfriidrettsstatistikk.parse_norwegian_time(rec.get("mark") or "")
+    date = _parse_date(rec.get("date"))
+    if performance_seconds is None or date is None:
+        return
+    _store_progression(
+        session, athlete, category_code, event_code, performance_seconds, rec.get("mark"),
+        date, rec.get("venue"), source="minfriidrettsstatistikk", source_ref=None,
     )

@@ -7,12 +7,17 @@ from nordcross.db.session import get_engine
 from nordcross.dedup import find_potential_duplicates, merge_athletes
 from nordcross.ingest import store_championship_results
 from nordcross.lookup_queue import export_for_review, queue_summary, resolve_manually, seed_lookup_queue
-from nordcross.lookup_runner import run_friidrottsstatistik, run_tilastopaja, run_worldathletics
-
-SOURCE_CHOICES = ["tilastopaja", "worldathletics", "friidrottsstatistik"]
+from nordcross.lookup_runner import (
+    run_friidrottsstatistik,
+    run_minfriidrettsstatistikk,
+    run_tilastopaja,
+    run_worldathletics,
+)
 from nordcross.matching import match_athletes
 from nordcross.progression_matching import add_manual_progression, match_wa_points
 from nordcross.sources import SOURCES
+
+SOURCE_CHOICES = ["tilastopaja", "worldathletics", "friidrottsstatistik", "minfriidrettsstatistikk"]
 
 
 def init_db() -> None:
@@ -90,6 +95,8 @@ def main() -> None:
     elif args.command == "lookup-run":
         if args.source == "friidrottsstatistik":
             run_friidrottsstatistik(limit=args.limit)
+        elif args.source == "minfriidrettsstatistikk":
+            run_minfriidrettsstatistikk(limit=args.limit)
         else:
             runner = run_tilastopaja if args.source == "tilastopaja" else run_worldathletics
             runner(limit=args.limit, headless=not args.headed)
