@@ -104,15 +104,55 @@ def profile_id_from_url(profile_url: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _parse_personal_bests(page) -> list[dict]:
-    """The overview page's "Personal bests" cards: one row per discipline
-    (career PB), which the "All-time top 10" table alone can miss for an
-    athlete whose global top-10-across-all-disciplines is dominated by an
-    event we don't track (e.g. a steeplechase specialist whose occasional
-    flat-race PBs never crack their own all-disciplines top 10). Rendered as
-    stacked "Label / value" pairs rather than a <table>, so parsed from text
-    rather than DOM cells -- confirmed live 2026-09 against Eero Heinonen
-    (a 3000m Steeplechase specialist)."""
+def _personal_bests_needs_expanding(page) -> bool:
+    """"SEE MORE PERFORMANCES" appears once per truncated section (Personal
+    Bests, Season's Bests), and only when that section actually hides
+    something -- an athlete with few disciplines may have it only (or not at
+    all) for Season's Bests. Only the occurrence between "Personal bests"
+    and "Season" belongs to Personal Bests; confirmed live 2026-09 (Kasper
+    Fosser has just one, but it's for Season's Bests, not Personal Bests)."""
+    text = page.inner_text("body")
+    pb_start = text.find("Personal bests")
+    if pb_start == -1:
+        return False
+    season_start = text.find("Season", pb_start)
+    see_more_idx = text.find("SEE MORE PERFORMANCES", pb_start)
+    return see_more_idx != -1 and (season_start == -1 or see_more_idx < season_start)
+
+
+def _parse_personal_bests_table(page) -> list[dict]:
+    """After clicking "SEE MORE PERFORMANCES", Personal Bests renders as a
+    real <table> with 6 <td> cells per row: discipline, performance, wind,
+    date, venue, score."""
+    tables = page.locator("table")
+    for t in range(tables.count()):
+        rows = tables.nth(t).locator("tbody tr")
+        if rows.count() == 0 or cells_len(rows.nth(0)) != 6:
+            continue
+        records = []
+        for i in range(rows.count()):
+            cells = rows.nth(i).locator("td")
+            discipline, mark, _wind, date, venue, score = (
+                cells.nth(j).inner_text().strip() for j in range(6)
+            )
+            records.append(
+                {
+                    "event": discipline,
+                    "mark": mark,
+                    "date": date,
+                    "venue": venue or None,
+                    "place": None,
+                    "wa_score": int(score) if score.isdigit() else None,
+                }
+            )
+        return records
+    return []
+
+
+def _parse_personal_bests_cards(page) -> list[dict]:
+    """The default (unexpanded) Personal Bests layout: stacked "Label /
+    value" pairs rather than a <table>, used when there's nothing to expand
+    (few enough disciplines that none are hidden)."""
     text = page.inner_text("body")
     start = text.find("Personal bests")
     if start == -1:
@@ -155,6 +195,21 @@ def _parse_personal_bests(page) -> list[dict]:
         for e in entries
         if e.get("Result") and e.get("Date")
     ]
+
+
+def _parse_personal_bests(page) -> list[dict]:
+    """One career-PB row per discipline -- which the "All-time top 10" table
+    alone can miss for an athlete whose global top-10-across-all-disciplines
+    is dominated by an event we don't track (e.g. a steeplechase specialist
+    whose occasional flat-race PBs never crack their own all-disciplines top
+    10), or who has simply improved enough that early-career marks in a
+    *tracked* event no longer rank in their own top 10 by score."""
+    if _personal_bests_needs_expanding(page):
+        page.get_by_text("SEE MORE PERFORMANCES").first.click()
+        page.wait_for_timeout(1000)
+        _check_not_blocked(page)
+        return _parse_personal_bests_table(page)
+    return _parse_personal_bests_cards(page)
 
 
 def fetch_progression(page, profile_url: str) -> list[dict]:
