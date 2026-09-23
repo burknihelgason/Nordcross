@@ -39,6 +39,7 @@ class Championship(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     year: Mapped[int]
+    date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     host_country_code: Mapped[str | None] = mapped_column(ForeignKey("countries.code"), nullable=True)
     name: Mapped[str] = mapped_column(String(200))
     source_url: Mapped[str] = mapped_column(String(500))
@@ -164,6 +165,12 @@ class AthleteLookup(Base):
     # pending | done | not_found | ambiguous | failed
     external_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     match_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'high' | 'low'
+
+    # Set by a human via `lookup-resolve` after manually finding the right
+    # profile (a full profile URL for worldathletics, or the numeric
+    # athleteId for tilastopaja). When set, the runner uses it directly next
+    # time instead of re-searching -- see lookup_runner.py.
+    manual_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     attempts: Mapped[int] = mapped_column(default=0)
     last_attempt_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)

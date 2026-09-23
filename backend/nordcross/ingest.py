@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime
+
 from sqlalchemy.orm import Session
 
 from nordcross.db.models import Category, Championship, Race, Result
@@ -8,13 +10,18 @@ from nordcross.scrapers.common import ParsedRace, ParsedResult
 
 
 def _get_or_create_championship(
-    session: Session, year: int, name: str, source_url: str, host_country_code: str | None
+    session: Session, year: int, name: str, source_url: str, host_country_code: str | None,
+    date: datetime.date | None,
 ) -> Championship:
     champ = session.query(Championship).filter_by(year=year).one_or_none()
     if champ is None:
-        champ = Championship(year=year, name=name, source_url=source_url, host_country_code=host_country_code)
+        champ = Championship(
+            year=year, name=name, source_url=source_url, host_country_code=host_country_code, date=date,
+        )
         session.add(champ)
         session.flush()
+    else:
+        champ.date = date
     return champ
 
 
@@ -65,10 +72,11 @@ def store_championship_results(
     source_url: str,
     scraped: dict[str, tuple[ParsedRace, list[ParsedResult]]],
     host_country_code: str | None = None,
+    date: datetime.date | None = None,
 ) -> None:
     session = get_session()
     try:
-        championship = _get_or_create_championship(session, year, name, source_url, host_country_code)
+        championship = _get_or_create_championship(session, year, name, source_url, host_country_code, date)
         for category_code, (parsed_race, parsed_results) in scraped.items():
             race = _get_or_create_race(session, championship, category_code, parsed_race)
             for parsed_result in parsed_results:

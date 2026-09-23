@@ -83,9 +83,14 @@ def run_tilastopaja(limit: int = 5, headless: bool = True, user_data_dir: str = 
                 category_code = _athlete_category_code(session, athlete.id) or "MEN"
                 print(f"Looking up (tilastopaja): {athlete.full_name} ({athlete.birth_year})")
 
-                polite_delay()
-                candidates = tilastopaja.search_athlete(page, athlete.full_name)
-                match = _pick_best_match(candidates, athlete, id_field="athleteId", dob_field="dateOfBirth")
+                if lookup.manual_url:
+                    match = (lookup.manual_url, "high")
+                    candidates = None
+                else:
+                    polite_delay()
+                    candidates = tilastopaja.search_athlete(page, athlete.full_name)
+                    match = _pick_best_match(candidates, athlete, id_field="athleteId", dob_field="dateOfBirth")
+
                 if match is None:
                     lookup.status = "not_found" if not candidates else "ambiguous"
                     lookup.note = f"{len(candidates)} candidate(s), none matched confidently"
@@ -98,7 +103,7 @@ def run_tilastopaja(limit: int = 5, headless: bool = True, user_data_dir: str = 
                     lookup.status = "done"
                     lookup.external_id = external_id
                     lookup.match_confidence = confidence
-                    lookup.note = f"{len(records)} progression record(s)"
+                    lookup.note = f"{len(records)} progression record(s)" + (" (manual)" if candidates is None else "")
 
                 lookup.attempts += 1
                 lookup.last_attempt_at = datetime.datetime.now(datetime.timezone.utc)
@@ -133,10 +138,15 @@ def run_worldathletics(limit: int = 5, headless: bool = True, user_data_dir: str
                 expected_sex = "Men" if category_code in MALE_CATEGORIES else "Women"
                 print(f"Looking up (worldathletics): {athlete.full_name} ({athlete.birth_year})")
 
-                polite_delay()
-                candidates = worldathletics.search_athlete(page, athlete.full_name)
-                candidates = [c for c in candidates if c["sex"].lower().startswith(expected_sex[0].lower())]
-                match = _pick_best_match(candidates, athlete, id_field="profile_url", dob_field="dob")
+                if lookup.manual_url:
+                    match = (lookup.manual_url, "high")
+                    candidates = None
+                else:
+                    polite_delay()
+                    candidates = worldathletics.search_athlete(page, athlete.full_name)
+                    candidates = [c for c in candidates if c["sex"].lower().startswith(expected_sex[0].lower())]
+                    match = _pick_best_match(candidates, athlete, id_field="profile_url", dob_field="dob")
+
                 if match is None:
                     lookup.status = "not_found" if not candidates else "ambiguous"
                     lookup.note = f"{len(candidates)} candidate(s), none matched confidently"
@@ -150,7 +160,7 @@ def run_worldathletics(limit: int = 5, headless: bool = True, user_data_dir: str
                     lookup.status = "done"
                     lookup.external_id = athlete.world_athletics_id
                     lookup.match_confidence = confidence
-                    lookup.note = f"{len(records)} progression record(s)"
+                    lookup.note = f"{len(records)} progression record(s)" + (" (manual)" if candidates is None else "")
 
                 lookup.attempts += 1
                 lookup.last_attempt_at = datetime.datetime.now(datetime.timezone.utc)
