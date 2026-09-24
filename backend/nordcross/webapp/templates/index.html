@@ -49,6 +49,30 @@
     </label>
   </fieldset>
 
+  <fieldset>
+    <legend>A-class</legend>
+    <label class="chip">
+      <input type="number" name="a_class_n" min="1" max="10" value="{{ selected.a_class.n }}" class="n-picker">
+      places from
+      <select name="a_class_dir">
+        <option value="top" {% if selected.a_class.direction == 'top' %}selected{% endif %}>top</option>
+        <option value="bottom" {% if selected.a_class.direction == 'bottom' %}selected{% endif %}>bottom</option>
+      </select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>B-class</legend>
+    <label class="chip">
+      <input type="number" name="b_class_n" min="1" max="10" value="{{ selected.b_class.n }}" class="n-picker">
+      places from
+      <select name="b_class_dir">
+        <option value="top" {% if selected.b_class.direction == 'top' %}selected{% endif %}>top</option>
+        <option value="bottom" {% if selected.b_class.direction == 'bottom' %}selected{% endif %}>bottom</option>
+      </select>
+    </label>
+  </fieldset>
+
   <input type="hidden" name="tab" id="active-tab-input" value="{{ active_tab }}">
   <button type="submit">Apply filters</button>
 </form>
@@ -117,7 +141,11 @@
     <h3>Points needed per category</h3>
     <table class="results-table">
       <thead>
-        <tr><th>Category</th><th>A-class points</th><th>B-class points</th></tr>
+        <tr>
+          <th>Category</th>
+          <th>A-class points ({{ selected.a_class.n }} from {{ selected.a_class.direction }})</th>
+          <th>B-class points ({{ selected.b_class.n }} from {{ selected.b_class.direction }})</th>
+        </tr>
       </thead>
       <tbody>
         {% for cp in class_points %}
@@ -131,9 +159,9 @@
     </table>
   </div>
 
-  {% for label, table in [('A-class', a_class_table), ('B-class', b_class_table)] %}
+  {% for label, config, table in [('A-class', selected.a_class, a_class_table), ('B-class', selected.b_class, b_class_table)] %}
   <div class="analytics-block">
-    <h3>{{ label }} equivalent times by event</h3>
+    <h3>{{ label }} ({{ config.n }} from {{ config.direction }}) &mdash; equivalent times by event</h3>
     <table class="results-table">
       <thead>
         <tr>

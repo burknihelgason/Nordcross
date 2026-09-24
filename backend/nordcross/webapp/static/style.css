@@ -51,6 +51,12 @@ body {
   font-size: 0.9rem;
   white-space: nowrap;
 }
+.filter-banner .n-picker {
+  width: 3.2rem;
+}
+.filter-banner select {
+  font-size: 0.9rem;
+}
 .filter-banner button {
   align-self: center;
   background: var(--accent);
